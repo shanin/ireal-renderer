@@ -151,3 +151,18 @@ option {
 		padding: 0;
 	}
 }
+
+.irr-cell-highlight {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 255, 0, 0.3);
+    pointer-events: none;
+    z-index: 100;
+}
+
+irr-cell {
+    position: relative;  /* For absolute positioning of highlight */
+}

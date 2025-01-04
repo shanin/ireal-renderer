@@ -10,6 +10,9 @@ window.addEventListener("load", async () => {
 		hilite: true
 	};
 	
+	// Track currently highlighted measure
+	var currentHighlight = null;
+	
 	function makePlaylist(text) {
 		playlist = new Playlist(text);
 		var lbHtml = "";
@@ -20,6 +23,106 @@ window.addEventListener("load", async () => {
 		}
 		document.getElementById("songs").innerHTML = lbHtml;
 		document.getElementById("chords").innerHTML = chordsHtml;
+	}
+	
+	/**
+	 * Find and count measures in a container
+	 * @param {Element} container - The container element
+	 * @returns {Array} Array of measure elements
+	 */
+	function findMeasures(container) {
+		const cells = container.querySelectorAll('irr-cell');
+		const measures = [];
+		let currentCell = 0;
+		
+		while (currentCell < cells.length) {
+			const cell = cells[currentCell];
+			const hasLeftBar = cell.querySelector('irr-lbar');
+			const hasRightBar = cell.querySelector('irr-rbar');
+			
+			// Skip cells until we find a measure start (left bar or cell after right bar)
+			if (!hasLeftBar && !hasRightBar && 
+				!(currentCell > 0 && cells[currentCell - 1].querySelector('irr-rbar'))) {
+				currentCell++;
+				continue;
+			}
+			
+			// Find end of measure (next left bar or right bar)
+			let endCell = currentCell + 1;
+			while (endCell < cells.length) {
+				const nextCell = cells[endCell];
+				if (nextCell.querySelector('irr-lbar') || nextCell.querySelector('irr-rbar')) {
+					if (nextCell.querySelector('irr-rbar')) {
+						endCell++; // Include the right bar cell
+					}
+					break;
+				}
+				endCell++;
+			}
+			
+			// Check if measure has any content
+			let measureHasContent = false;
+			let measureCells = [];
+			for (let i = currentCell; i < endCell; i++) {
+				const cell = cells[i];
+				// Check for chord content, repeat symbols, or N.C.
+				const cellContent = cell.querySelector('irr-chord');
+				const hasRepeatSymbol = cell.querySelector('.Repeated-Figure1, .Repeated-Figure2, .Repeated-Figure3');
+				const hasNoChord = cell.querySelector('.No-Chord');
+				
+				if ((cellContent && cellContent.textContent.trim()) || 
+					hasRepeatSymbol ||
+					hasNoChord) {
+					measureHasContent = true;
+				}
+				measureCells.push(cell);
+			}
+			
+			if (measureHasContent) {
+				measures.push(measureCells);
+			}
+			
+			currentCell = endCell;
+		}
+		
+		return measures;
+	}
+	
+	/**
+	 * Add click handlers to measures
+	 * @param {Element} container - The container element 
+	 */
+	function addMeasureClickHandlers(container) {
+		const measures = findMeasures(container);
+		
+		measures.forEach((measureCells, index) => {
+			measureCells.forEach(cell => {
+				cell.style.cursor = 'pointer';
+				cell.addEventListener('click', () => {
+					// Remove previous highlight
+					if (currentHighlight) {
+						currentHighlight.forEach(cell => {
+							const highlight = cell.querySelector('.irr-cell-highlight');
+							if (highlight) {
+								highlight.remove();
+							}
+						});
+					}
+					
+					// Add highlight to clicked measure
+					measureCells.forEach(cell => {
+						const highlight = document.createElement('div');
+						highlight.className = 'irr-cell-highlight';
+						cell.appendChild(highlight);
+					});
+					
+					currentHighlight = measureCells;
+					
+					// Update bar number input
+					document.getElementById('ui-barnumber').value = index;
+				});
+			});
+		});
 	}
 	
 	/**
@@ -35,7 +138,10 @@ window.addEventListener("load", async () => {
 		container.innerHTML = `<h3>${song.title} (${song.key
 			.replace(/b/g, "\u266d")
 			.replace(/#/g, "\u266f")})</h3><h5>${song.composer}</h5>`;
-		r.render(song, container, options);			
+		r.render(song, container, options);
+		
+		// Add click handlers after rendering
+		addMeasureClickHandlers(container);
 	}
 	
 	function renderSelected() {
@@ -107,4 +213,25 @@ window.addEventListener("load", async () => {
 		if (response.ok)
 				makePlaylist(await response.text());
 		}
+
+	// Add handler for bar number input
+	document.getElementById("ui-barnumber").addEventListener("change", ev => {
+		const barNumber = parseInt(ev.target.value);
+		if (isNaN(barNumber)) return;
+		
+		// Get currently displayed song container
+		const selected = [...document.getElementById("songs").options]
+			.filter(option => option.selected)
+			.map(el => document.getElementById(`song-${el.value}`))
+			.find(el => el.innerHTML !== "");
+			
+		if (!selected) return;
+		
+		// Find measures and highlight selected one
+		const measures = findMeasures(selected);
+		if (barNumber >= 0 && barNumber < measures.length) {
+			// Simulate click on the first cell of the target measure
+			measures[barNumber][0].click();
+		}
+	});
 });
