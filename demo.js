@@ -60,15 +60,22 @@ window.addEventListener("load", async () => {
 				endCell++;
 			}
 			
-			// Check if measure has any content
+			// Check if measure has any content or is a valid empty measure
 			let measureHasContent = false;
 			let measureCells = [];
+			let hasStartBar = false;
+			let hasEndBar = false;
+			
 			for (let i = currentCell; i < endCell; i++) {
 				const cell = cells[i];
 				// Check for chord content, repeat symbols, or N.C.
 				const cellContent = cell.querySelector('irr-chord');
 				const hasRepeatSymbol = cell.querySelector('.Repeated-Figure1, .Repeated-Figure2, .Repeated-Figure3');
 				const hasNoChord = cell.querySelector('.No-Chord');
+				
+				// Track if we have proper measure boundaries
+				if (cell.querySelector('irr-lbar')) hasStartBar = true;
+				if (cell.querySelector('irr-rbar')) hasEndBar = true;
 				
 				if ((cellContent && cellContent.textContent.trim()) || 
 					hasRepeatSymbol ||
@@ -78,7 +85,8 @@ window.addEventListener("load", async () => {
 				measureCells.push(cell);
 			}
 			
-			if (measureHasContent) {
+			// Consider a measure valid if it either has content OR has proper bar boundaries
+			if (measureHasContent || (hasStartBar && (hasEndBar || endCell < cells.length))) {
 				measures.push(measureCells);
 			}
 			
