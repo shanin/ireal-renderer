@@ -158,4 +158,15 @@ window.addEventListener("load", async () => {
     window.loadPlaylist = function(playlistData) {
         makePlaylist(playlistData);
     };
+
+    // Try to load demo playlist if available
+    try {
+        const response = await fetch("DemoPlaylist.html");
+        if (response.ok) {
+            const playlistData = await response.text();
+            makePlaylist(playlistData);
+        }
+    } catch (error) {
+        console.log("No demo playlist available");
+    }
 });
