@@ -76,7 +76,7 @@ const onLoad = async () => {
   console.log('DEMO2 YEEEEAH');
   const container = document.getElementById("ireal-container");
   const songTitle = container.innerText;
-  container.innerHTML = UI_HTML + PAGE_HTML;
+  container.innerHTML = PAGE_HTML + UI_HTML;
   document.body.appendChild(container);
 
   const LS_EL = parent.document.getElementsByClassName('lsf-audio-tag')[0].parentNode;
