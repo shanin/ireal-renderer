@@ -217,7 +217,7 @@ window.addEventListener("load", async () => {
 		makePlaylist(el[0].import.body.innerHTML);
 	else {
 		// If not, try to load via fetch()
-		var response = await fetch("DemoPlaylist.html");
+		var response = await fetch("playlist.html");
 		if (response.ok)
 				makePlaylist(await response.text());
 		}

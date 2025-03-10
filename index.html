@@ -9,59 +9,187 @@
 		<script src="src/ireal-reader-tiny.js"></script>
 		<script src="src/ireal-renderer.js"></script>
 		<script src="demo.js"></script>
+    <!-- Add Web Audio API and waveform visualization libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/wavesurfer.js/6.6.3/wavesurfer.min.js"></script>
+    
+    <style>
+      /* Custom styles for new layout */
+      #audio-section {
+        margin-bottom: 20px;
+      }
+      
+      /* Side-by-side layout container */
+      .content-wrapper {
+        display: flex;
+        margin-top: 20px;
+      }
+      
+      /* Left side - Song list */
+      #ui {
+        width: 30%;
+        padding-right: 20px;
+      }
+      
+      #left-box {
+        width: 100%;
+      }
+      
+      #right-box {
+        /* Hide all the unnecessary controls */
+        display: none;
+      }
+      
+      /* Right side - Chord chart */
+      #page {
+        width: 70%;
+        margin: 0;
+        padding: 0;
+      }
+      
+      #chords {
+        border: 1px solid #ccc;
+        min-height: 300px;
+        padding: 0;
+        margin: 0;
+      }
+      
+      /* Show only the transpose and file controls */
+      #transpose-container, #file-container {
+        display: block !important;
+        margin-top: 10px;
+      }
+      
+      #songs {
+        width: 100%;
+        height: 300px;
+      }
+      
+      h4 {
+        margin-top: 0;
+        margin-bottom: 10px;
+      }
+    </style>
 	</head>
 	<body>
 			<h3>iRealRenderer Demo</h3>
-		<div id="ui">
-			<div id="left-box">
-				<select id="songs" multiple size="6"></select>
-			</div>
-			<div id="right-box">
-				<div style="width:45%">
-					<label>Minor chords display:</label>
-					<div class="radio">
-					  <label><input type="radio" id="minus" name="minor" checked>Minus sign (Bb-)</label>
-					</div>
-					<div class="radio">
-					  <label><input type="radio" id="m" name="minor">Letter "m" (Bbm)</label>
-					</div>
-					<div class="radio">
-					  <label><input type="radio" id="small" name="minor">Small letters (bb)</label>
-					</div>
-					<br/>
-					<div class="checkbox">
-					  <label><input type="checkbox" id="ui-useh">Use H for B chords</label>
-					</div>
-				</div>
-				<table border="0" width="45%">
-					<tr><td colspan="2">
-						<div class="checkbox">
-						  <label><input type="checkbox" id="ui-hilite" checked>Highlighting</label>
-						</div>
-					</td></tr>
-					<tr><td>
-						<label for="ui-barnumber">Bar number: </label>
-					</td><td>
-						<input id = "ui-barnumber" type="number" value="0" min="0" max="256" style="display:inline; width:60px">
-					</td></tr>
-					<tr><td>
-						<label for="ui-transpose">Transpose (half tones): </label>
-					</td><td>
-						<input id = "ui-transpose" type="number" value="0" min="-6" max="6" style="display:inline; width:60px">
-					</tr><tr><td>
-						<label for="ui-fontsize">Font size: </label>
-					</td><td>
-						<input id = "ui-fontsize" type="number" value="16" min="4" max="256" style="display:inline; width:60px">
-					</td></tr>
-					<tr><td colspan="2">
-						<label for="ui-file">Select iReal Pro playlist: </label>
-						<input type="file" id="ui-file" style="margin-top: 5px"/>
-					</td></tr>
-				</table>
-			</div>
-		</div>
-		<div id="page">
-			<div id="chords" style="font-size:16pt"></div>
-		</div>
+      
+      <!-- Audio upload and playback section -->
+      <div id="audio-section">
+        <div id="audio-upload">
+          <label for="audio-file">Upload MP3 Track:</label>
+          <input type="file" id="audio-file" accept="audio/mp3" />
+        </div>
+        
+        <!-- Waveform visualization -->
+        <div id="waveform" style="width: 100%; margin: 20px 0;"></div>
+        
+        <!-- Playback controls -->
+        <div id="audio-controls">
+          <button id="play-btn">Play</button>
+          <button id="stop-btn">Stop</button>
+        </div>
+      </div>
+
+      <!-- Audio player script -->
+      <script>
+        document.addEventListener('DOMContentLoaded', function() {
+          // Initialize WaveSurfer with more schematic visualization
+          const wavesurfer = WaveSurfer.create({
+            container: '#waveform',
+            waveColor: '#4F4A85',
+            progressColor: '#6a5acd',
+            height: 100,
+            responsive: true,
+            cursorWidth: 2,
+            cursorColor: '#ff5500',
+            barWidth: 3,         // Width of bars in the visualization
+            barGap: 1,           // Gap between bars
+            barRadius: 0,        // Square bars for a more schematic look
+            normalize: true,     // Normalize the waveform for clearer visualization
+            backend: 'MediaElement',
+            barHeight: 0.8,      // Bar height (0-1)
+            hideScrollbar: true
+          });
+          
+          // Handle file upload
+          document.getElementById('audio-file').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+              const fileURL = URL.createObjectURL(file);
+              wavesurfer.load(fileURL);
+            }
+          });
+          
+          // Play/Stop controls
+          document.getElementById('play-btn').addEventListener('click', function() {
+            wavesurfer.play();
+          });
+          
+          document.getElementById('stop-btn').addEventListener('click', function() {
+            wavesurfer.stop();
+          });
+        });
+      </script>
+      
+      <!-- Wrapper for side-by-side layout -->
+      <div class="content-wrapper">
+        <!-- Original structure with added headers for clarity -->
+        <div id="ui">
+          <div id="left-box">
+            <h4>Song List</h4>
+            <select id="songs" multiple size="15"></select>
+            
+            <div id="transpose-container" style="margin-top: 15px;">
+              <label for="ui-transpose">Transpose (half tones): </label>
+              <input id="ui-transpose" type="number" value="0" min="-6" max="6" style="width: 60px">
+            </div>
+            
+            <div id="file-container" style="margin-top: 15px;">
+              <label for="ui-file">Select iReal Pro playlist: </label>
+              <input type="file" id="ui-file" style="margin-top: 5px; width: 100%"/>
+            </div>
+          </div>
+          
+          <div id="right-box">
+            <div style="width:45%">
+              <label>Minor chords display:</label>
+              <div class="radio">
+                <label><input type="radio" id="minus" name="minor" checked>Minus sign (Bb-)</label>
+              </div>
+              <div class="radio">
+                <label><input type="radio" id="m" name="minor">Letter "m" (Bbm)</label>
+              </div>
+              <div class="radio">
+                <label><input type="radio" id="small" name="minor">Small letters (bb)</label>
+              </div>
+              <br/>
+              <div class="checkbox">
+                <label><input type="checkbox" id="ui-useh">Use H for B chords</label>
+              </div>
+            </div>
+            <table border="0" width="45%">
+              <tr><td colspan="2">
+                <div class="checkbox">
+                  <label><input type="checkbox" id="ui-hilite" checked>Highlighting</label>
+                </div>
+              </td></tr>
+              <tr><td>
+                <label for="ui-barnumber">Bar number: </label>
+              </td><td>
+                <input id="ui-barnumber" type="number" value="0" min="0" max="256" style="display:inline; width:60px">
+              </td></tr>
+              <tr><td>
+                <label for="ui-fontsize">Font size: </label>
+              </td><td>
+                <input id="ui-fontsize" type="number" value="16" min="4" max="256" style="display:inline; width:60px">
+              </td></tr>
+            </table>
+          </div>
+        </div>
+        
+        <div id="page">
+          <div id="chords" style="font-size:16pt; margin: 5px;"></div>
+        </div>
+      </div>
   </body>
 </html>
