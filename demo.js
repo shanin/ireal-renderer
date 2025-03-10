@@ -135,7 +135,14 @@ window.addEventListener("load", async () => {
 					// Log bar click as an annotation if wavesurfer is available
 					if (window.wavesurfer && typeof window.addAnnotation === 'function') {
 						const currentTime = window.wavesurfer.isReady ? window.wavesurfer.getCurrentTime() : 0;
-						window.addAnnotation('bar', currentTime, index);
+						
+						// Get song info
+						const selectedOption = [...document.getElementById("songs").options]
+							.find(option => option.selected);
+						const songTitle = selectedOption ? selectedOption.text : '';
+						const transposition = parseInt(document.getElementById('ui-transpose').value) || 0;
+						
+						window.addAnnotation('bar', currentTime, index, null, transposition, songTitle);
 					}
 				});
 			});

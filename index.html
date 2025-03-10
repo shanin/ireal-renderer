@@ -15,6 +15,39 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/wavesurfer.js/6.6.3/plugin/wavesurfer.regions.min.js"></script>
     
     <style>
+      /* YouTube download section */
+      #youtube-section {
+        margin-bottom: 15px;
+        padding: 10px;
+        background-color: #f8f8f8;
+        border-radius: 5px;
+        border: 1px solid #ddd;
+      }
+      
+      #youtube-url {
+        width: 60%;
+        padding: 8px;
+        margin-right: 10px;
+      }
+      
+      #download-btn {
+        padding: 8px 15px;
+        background-color: #FF0000;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      
+      #download-btn:hover {
+        background-color: #CC0000;
+      }
+      
+      #download-status {
+        margin-top: 8px;
+        font-style: italic;
+      }
+      
       /* Custom styles for new layout */
       #audio-section {
         margin-bottom: 20px;
@@ -156,6 +189,13 @@
     </style>
 	</head>
 	<body>
+      <!-- YouTube Download Section -->
+      <div id="youtube-section">
+        <input type="text" id="youtube-url" placeholder="Enter YouTube URL" />
+        <button id="download-btn">Download as MP3</button>
+        <div id="download-status"></div>
+      </div>
+      
       <!-- Audio upload and playback section -->
       <div id="audio-section">
         <div id="audio-upload">
@@ -188,7 +228,13 @@
               <strong>Annotations:</strong>
               <div id="annotation-list"></div>
             </div>
-            <button id="export-annotations">Export Annotations</button>
+            <div style="margin-top: 10px; display: flex; justify-content: space-between;">
+              <button id="export-annotations">Export Annotations</button>
+              <div>
+                <input type="file" id="import-annotations-file" accept=".json" style="display: none;">
+                <button id="import-annotations-btn">Import Annotations</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -235,7 +281,7 @@
           let activeLiveRegion = null;  // Track the live region for active segment
           
           // Function to add annotation
-          function addAnnotation(type, time, barNumber = null, description = null) {
+          function addAnnotation(type, time, barNumber = null, description = null, transposition = null, songTitle = null) {
             // Create region
             const id = Date.now().toString();
             let region;
@@ -457,6 +503,21 @@
             } else if (type === 'bar') {
               // For bar clicks, we just want to log the event without adding a region
               region = { id: id }; // Create dummy region object
+              
+              // Get the current transposition value if not provided
+              if (transposition === null) {
+                transposition = parseInt(document.getElementById('ui-transpose').value) || 0;
+              }
+              
+              // Get the current song title if not provided
+              if (songTitle === null) {
+                const selectedOption = [...document.getElementById("songs").options]
+                  .find(option => option.selected);
+                
+                if (selectedOption) {
+                  songTitle = selectedOption.text || '';
+                }
+              }
             } else {
               // For other types, just add a marker
               region = wavesurfer.addRegion({
@@ -489,9 +550,11 @@
               timeFormatted: formatTime(time)
             };
             
-            // Add bar number if this is a bar click
+            // Add bar number, transposition, and song title if this is a bar click
             if (type === 'bar' && barNumber !== null) {
               annotation.barNumber = barNumber;
+              annotation.transposition = transposition;
+              annotation.songTitle = songTitle;
             }
             
             // Add description if provided
@@ -602,7 +665,9 @@
               if (annotation.type === 'bar') {
                 html += `<div data-id="${annotation.id}" style="margin-bottom: 4px;">
                   <span style="color:${annotationColors[annotation.type]}">●</span>
-                  ${annotation.timeFormatted} - Bar ${annotation.barNumber}
+                  ${annotation.timeFormatted} - Bar ${annotation.barNumber} 
+                  <span title="Transposition">(T: ${annotation.transposition !== undefined ? annotation.transposition : 0})</span>
+                  ${annotation.songTitle ? `<span title="Song" style="font-style: italic; margin-left: 5px;">${annotation.songTitle}</span>` : ''}
                   <button class="delete-annotation" data-index="${index}" style="margin-left: 5px; font-size: 10px;">X</button>
                 </div>`;
               } else if (annotation.type === 'segment') {
@@ -683,9 +748,6 @@
               currentBarNumber = -1; // Will become 0 after incrementing
             }
             
-            // Increment to get the next bar
-            const nextBarNumber = currentBarNumber + 1;
-            
             // Get the currently displayed song container
             const selectedOptions = [...document.getElementById("songs").options]
               .filter(option => option.selected);
@@ -701,10 +763,28 @@
             const measures = window.findMeasures ? 
               window.findMeasures(songContainer) : [];
             
+            if (measures.length === 0) return; // No measures found
+            
+            // Increment to get the next bar, with wraparound
+            let nextBarNumber = currentBarNumber + 1;
+            
+            // If we've reached the end, loop back to bar 0
+            if (nextBarNumber >= measures.length) {
+              nextBarNumber = 0;
+            }
+            
+            // Get the current transposition value
+            const transposition = parseInt(document.getElementById('ui-transpose').value) || 0;
+            
+            // Get the current song title
+            const selectedOption = [...document.getElementById("songs").options]
+              .find(option => option.selected);
+            const songTitle = selectedOption ? selectedOption.text : '';
+            
             // Check if next bar exists
             if (nextBarNumber >= 0 && nextBarNumber < measures.length) {
-              // Add bar annotation at current time with the next bar number
-              addAnnotation('bar', currentTime, nextBarNumber);
+              // Add bar annotation with the next bar number, transposition, and song title
+              addAnnotation('bar', currentTime, nextBarNumber, null, transposition, songTitle);
               
               // Highlight the next bar
               if (window.highlightBarByNumber) {
@@ -793,8 +873,52 @@
               // Get the closest bar annotation
               const closestBarAnnotation = barAnnotations[0];
               
-              // Highlight the bar in the chord chart
-              highlightBarByNumber(closestBarAnnotation.barNumber);
+              // Check if we need to change the song
+              if (closestBarAnnotation.songTitle) {
+                // Find the option with matching text
+                const songsList = document.getElementById("songs");
+                const songOption = [...songsList.options]
+                  .find(option => option.text === closestBarAnnotation.songTitle);
+                
+                // If found and not already selected, select it and trigger change
+                if (songOption && !songOption.selected) {
+                  // Deselect all options first
+                  for (let i = 0; i < songsList.options.length; i++) {
+                    songsList.options[i].selected = false;
+                  }
+                  
+                  // Select the matching song
+                  songOption.selected = true;
+                  
+                  // Trigger change event to load the song
+                  const event = new Event('change');
+                  songsList.dispatchEvent(event);
+                  
+                  console.log(`Switching to song: ${closestBarAnnotation.songTitle}`);
+                }
+              }
+              
+              // Highlight the bar in the chord chart (after song is loaded if needed)
+              setTimeout(() => {
+                highlightBarByNumber(closestBarAnnotation.barNumber);
+              }, 100);
+              
+              // Check if there's a transposition value to update
+              if (closestBarAnnotation.transposition !== undefined) {
+                const currentTransposition = parseInt(document.getElementById('ui-transpose').value) || 0;
+                
+                // Only update and redraw if the transposition has changed
+                if (currentTransposition !== closestBarAnnotation.transposition) {
+                  console.log(`Changing transposition to ${closestBarAnnotation.transposition} at bar ${closestBarAnnotation.barNumber}`);
+                  
+                  // Update the transposition field
+                  document.getElementById('ui-transpose').value = closestBarAnnotation.transposition;
+                  
+                  // Trigger the change event to redraw the chord chart
+                  const event = new Event('change');
+                  document.getElementById('ui-transpose').dispatchEvent(event);
+                }
+              }
             }
           });
           
@@ -813,15 +937,286 @@
               document.getElementById('ui-barnumber').dispatchEvent(event);
             }
           }
+          
+          // Import annotations from JSON file
+          document.getElementById('import-annotations-btn').addEventListener('click', function() {
+            document.getElementById('import-annotations-file').click();
+          });
+          
+          document.getElementById('import-annotations-file').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(event) {
+              try {
+                const importedAnnotations = JSON.parse(event.target.result);
+                importAnnotations(importedAnnotations);
+              } catch (error) {
+                console.error('Error parsing JSON:', error);
+                alert('Error parsing JSON file: ' + error.message);
+              }
+            };
+            reader.readAsText(file);
+          });
+          
+          // Function to import annotations
+          function importAnnotations(importedAnnotations) {
+            if (!Array.isArray(importedAnnotations) || importedAnnotations.length === 0) {
+              alert('No valid annotations found in the file');
+              return;
+            }
+            
+            // Clear existing annotations
+            if (window.wavesurfer) {
+              Object.keys(window.wavesurfer.regions.list).forEach(id => {
+                window.wavesurfer.regions.list[id].remove();
+              });
+            }
+            
+            // Clear annotation array and reset active segment
+            annotations.length = 0;
+            activeSegment = null;
+            if (activeLiveRegion) {
+              activeLiveRegion.remove();
+              activeLiveRegion = null;
+            }
+            
+            // Import each annotation
+            let successCount = 0;
+            let errorCount = 0;
+            
+            importedAnnotations.forEach(anno => {
+              try {
+                // Fix: Check if type exists and time is not null/undefined (0 is valid!)
+                if (!anno.type || anno.time === undefined || anno.time === null) {
+                  errorCount++;
+                  return;
+                }
+                
+                // Special handling for segment type
+                if (anno.type === 'segment') {
+                  // Fix: Also check for undefined/null instead of falsy values
+                  if (anno.endTime === undefined || anno.endTime === null) {
+                    errorCount++;
+                    return;
+                  }
+                  
+                  // Create segment with both start and end times
+                  const segmentId = Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+                  const region = wavesurfer.addRegion({
+                    id: segmentId,
+                    start: anno.time,
+                    end: anno.endTime,
+                    color: 'rgba(76, 175, 80, 0.2)', // Green translucent color
+                    drag: false,
+                    resize: false
+                  });
+                  
+                  // Add start marker
+                  wavesurfer.addRegion({
+                    id: 'marker-' + segmentId,
+                    start: anno.time,
+                    end: anno.time + 0.1,
+                    color: annotationColors['segment'] + '33',
+                    drag: false,
+                    resize: false
+                  });
+                  
+                  // Add end marker
+                  wavesurfer.addRegion({
+                    id: 'end-marker-' + segmentId,
+                    start: anno.endTime,
+                    end: anno.endTime + 0.1,
+                    color: annotationColors['segment'] + '33',
+                    drag: false,
+                    resize: false
+                  });
+                  
+                  // Create the annotation object
+                  const annotation = {
+                    id: segmentId,
+                    type: 'segment',
+                    time: anno.time,
+                    timeFormatted: formatTime(anno.time),
+                    endTime: anno.endTime,
+                    endTimeFormatted: formatTime(anno.endTime),
+                    description: anno.description || ''
+                  };
+                  
+                  annotations.push(annotation);
+                  successCount++;
+                }
+                // Handle bar annotations
+                else if (anno.type === 'bar') {
+                  // Fix: Check specifically for undefined/null
+                  if (anno.barNumber === undefined || anno.barNumber === null) {
+                    errorCount++;
+                    return;
+                  }
+                  
+                  const id = Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+                  
+                  // Create the annotation object with all available properties
+                  const annotation = {
+                    id: id,
+                    type: 'bar',
+                    time: anno.time,
+                    timeFormatted: formatTime(anno.time),
+                    barNumber: anno.barNumber,
+                    transposition: anno.transposition !== undefined ? anno.transposition : 0,
+                    songTitle: anno.songTitle || ''
+                  };
+                  
+                  annotations.push(annotation);
+                  successCount++;
+                }
+                // Handle other annotation types (intro, outro, beat, downbeat)
+                else {
+                  const result = addAnnotation(anno.type, anno.time, anno.barNumber, anno.description, anno.transposition, anno.songTitle);
+                  if (result) successCount++;
+                  else errorCount++;
+                }
+              } catch (e) {
+                console.error('Error importing annotation:', e, anno);
+                errorCount++;
+              }
+            });
+            
+            // Update annotation list
+            updateAnnotationList();
+            
+            // Show import results
+            alert(`Imported ${successCount} annotations successfully. ${errorCount} annotations could not be imported.`);
+          }
+        });
+
+        // YouTube download functionality
+        document.getElementById('download-btn').addEventListener('click', function() {
+          const youtubeUrl = document.getElementById('youtube-url').value.trim();
+          const statusElement = document.getElementById('download-status');
+          
+          if (!youtubeUrl) {
+            statusElement.textContent = 'Please enter a valid YouTube URL';
+            return;
+          }
+          
+          statusElement.textContent = 'Downloading... This may take a while.';
+          
+          // Send request to Flask backend
+          fetch('/download', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ url: youtubeUrl }),
+          })
+          .then(response => response.json())
+          .then(data => {
+            if (data.success) {
+              statusElement.textContent = `Download complete! File saved as: ${data.filename}`;
+              
+              // Load the downloaded audio file
+              if (window.wavesurfer) {
+                window.wavesurfer.load(`/downloads/${data.filename}`);
+                
+                // Clear existing annotations
+                const annotations = window.annotations || [];
+                Object.keys(window.wavesurfer.regions.list).forEach(id => {
+                  window.wavesurfer.regions.list[id].remove();
+                });
+                annotations.length = 0;
+                if (typeof updateAnnotationList === 'function') {
+                  updateAnnotationList();
+                }
+              }
+            } else {
+              statusElement.textContent = `Error: ${data.error}`;
+            }
+          })
+          .catch(error => {
+            statusElement.textContent = `Error: ${error.message}`;
+            console.error('Error:', error);
+          });
+        });
+
+        // Song list search functionality
+        document.addEventListener('DOMContentLoaded', function() {
+          const searchInput = document.getElementById('song-search');
+          const clearButton = document.getElementById('clear-search');
+          const songList = document.getElementById('songs');
+          
+          // Hide the clear button initially
+          clearButton.style.display = 'none';
+          
+          // Function to filter songs
+          function filterSongs() {
+            const searchText = searchInput.value.toLowerCase();
+            const options = songList.options;
+            
+            // Show/hide clear button based on search text
+            clearButton.style.display = searchText ? 'inline' : 'none';
+            
+            // Count matches for feedback
+            let matchCount = 0;
+            
+            // Loop through all options to filter
+            for (let i = 0; i < options.length; i++) {
+              const songName = options[i].text.toLowerCase();
+              const matches = songName.includes(searchText);
+              
+              // Only show matching options
+              options[i].style.display = matches ? '' : 'none';
+              
+              if (matches) {
+                matchCount++;
+                
+                // Auto-select the first match
+                if (matchCount === 1 && searchText) {
+                  options[i].selected = true;
+                  
+                  // Trigger a change event to load the song
+                  const event = new Event('change');
+                  songList.dispatchEvent(event);
+                }
+              } else if (searchText) {
+                options[i].selected = false;
+              }
+            }
+          }
+          
+          // Listen for input changes
+          searchInput.addEventListener('input', filterSongs);
+          
+          // Clear search function
+          function clearSearch() {
+            searchInput.value = '';
+            filterSongs();
+            searchInput.focus();
+          }
+          
+          // Clear button click handler
+          clearButton.addEventListener('click', clearSearch);
+          
+          // Also clear when Escape is pressed
+          searchInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+              clearSearch();
+            }
+          });
         });
       </script>
       
       <!-- Wrapper for side-by-side layout -->
       <div class="content-wrapper">
         <!-- Original structure with added headers for clarity -->
-        <div id="ui">
-          <div id="left-box">
+		<div id="ui">
+          <div id="left-box" style="position: relative; width: 100%;">
             <h4>Song List</h4>
+            <div id="song-search-container" style="margin-bottom: 10px;">
+              <input type="text" id="song-search" placeholder="Search songs..." style="width: 100%; padding: 5px; box-sizing: border-box;">
+              <button id="clear-search" style="position: absolute; right: 5px; top: 5px; background: none; border: none; cursor: pointer; font-size: 14px; color: #999;">✕</button>
+            </div>
             <select id="songs" multiple size="15"></select>
             
             <div id="transpose-container" style="margin-top: 15px;">
@@ -833,48 +1228,48 @@
               <label for="ui-file">Select iReal Pro playlist: </label>
               <input type="file" id="ui-file" style="margin-top: 5px; width: 100%"/>
             </div>
-          </div>
+			</div>
           
-          <div id="right-box">
-            <div style="width:45%">
-              <label>Minor chords display:</label>
-              <div class="radio">
-                <label><input type="radio" id="minus" name="minor" checked>Minus sign (Bb-)</label>
-              </div>
-              <div class="radio">
-                <label><input type="radio" id="m" name="minor">Letter "m" (Bbm)</label>
-              </div>
-              <div class="radio">
-                <label><input type="radio" id="small" name="minor">Small letters (bb)</label>
-              </div>
-              <br/>
-              <div class="checkbox">
-                <label><input type="checkbox" id="ui-useh">Use H for B chords</label>
-              </div>
-            </div>
-            <table border="0" width="45%">
-              <tr><td colspan="2">
-                <div class="checkbox">
-                  <label><input type="checkbox" id="ui-hilite" checked>Highlighting</label>
-                </div>
-              </td></tr>
-              <tr><td>
-                <label for="ui-barnumber">Bar number: </label>
-              </td><td>
+			<div id="right-box">
+				<div style="width:45%">
+					<label>Minor chords display:</label>
+					<div class="radio">
+					  <label><input type="radio" id="minus" name="minor" checked>Minus sign (Bb-)</label>
+					</div>
+					<div class="radio">
+					  <label><input type="radio" id="m" name="minor">Letter "m" (Bbm)</label>
+					</div>
+					<div class="radio">
+					  <label><input type="radio" id="small" name="minor">Small letters (bb)</label>
+					</div>
+					<br/>
+					<div class="checkbox">
+					  <label><input type="checkbox" id="ui-useh">Use H for B chords</label>
+					</div>
+				</div>
+				<table border="0" width="45%">
+					<tr><td colspan="2">
+						<div class="checkbox">
+						  <label><input type="checkbox" id="ui-hilite" checked>Highlighting</label>
+						</div>
+					</td></tr>
+					<tr><td>
+						<label for="ui-barnumber">Bar number: </label>
+					</td><td>
                 <input id="ui-barnumber" type="number" value="0" min="0" max="256" style="display:inline; width:60px">
-              </td></tr>
-              <tr><td>
-                <label for="ui-fontsize">Font size: </label>
-              </td><td>
+					</td></tr>
+					<tr><td>
+						<label for="ui-fontsize">Font size: </label>
+					</td><td>
                 <input id="ui-fontsize" type="number" value="16" min="4" max="256" style="display:inline; width:60px">
-              </td></tr>
-            </table>
-          </div>
-        </div>
+					</td></tr>
+				</table>
+			</div>
+		</div>
         
-        <div id="page">
+		<div id="page">
           <div id="chords" style="font-size:16pt; margin: 5px;"></div>
         </div>
-      </div>
+		</div>
   </body>
 </html>
