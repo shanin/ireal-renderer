@@ -11,6 +11,8 @@
 		<script src="demo.js"></script>
     <!-- Add Web Audio API and waveform visualization libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/wavesurfer.js/6.6.3/wavesurfer.min.js"></script>
+    <!-- Add WaveSurfer Regions plugin for annotations -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/wavesurfer.js/6.6.3/plugin/wavesurfer.regions.min.js"></script>
     
     <style>
       /* Custom styles for new layout */
@@ -68,11 +70,92 @@
         margin-top: 0;
         margin-bottom: 10px;
       }
+      
+      /* Annotation styles */
+      #annotation-controls {
+        margin-top: 10px;
+        padding: 10px;
+        background-color: #f5f5f5;
+        border-radius: 4px;
+      }
+      
+      .region-label {
+        position: absolute;
+        top: -15px;
+        font-size: 12px;
+        font-weight: bold;
+      }
+      
+      .annotation-type {
+        display: inline-block;
+        margin-right: 15px;
+      }
+      
+      .annotation-type span {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        margin-right: 5px;
+        border-radius: 50%;
+      }
+      
+      .intro-color {
+        background-color: #FF5722;
+      }
+      
+      .segment-color {
+        background-color: #4CAF50;
+      }
+      
+      .outro-color {
+        background-color: #795548;
+      }
+      
+      .beat-color {
+        background-color: #607D8B;
+      }
+      
+      .downbeat-color {
+        background-color: #E91E63;
+      }
+      
+      .bar-color {
+        background-color: #009688;
+      }
+      
+      /* Beat marker style (vertical line) */
+      .beat-marker {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background-color: #607D8B;
+      }
+      
+      /* Downbeat marker style (vertical line, slightly thicker) */
+      .downbeat-marker {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background-color: #E91E63;
+      }
+      
+      #annotation-list {
+        margin-top: 10px;
+        height: 150px;
+        overflow-y: auto;
+        border: 1px solid #ddd;
+        padding: 5px;
+        font-size: 14px;
+      }
+      
+      #export-annotations {
+        margin-top: 10px;
+      }
     </style>
 	</head>
 	<body>
-			<h3>iRealRenderer Demo</h3>
-      
       <!-- Audio upload and playback section -->
       <div id="audio-section">
         <div id="audio-upload">
@@ -87,13 +170,36 @@
         <div id="audio-controls">
           <button id="play-btn">Play</button>
           <button id="stop-btn">Stop</button>
+          
+          <!-- Annotation controls -->
+          <div id="annotation-controls">
+            <div>
+              <strong>Press these keys while audio is playing to add annotations:</strong>
+            </div>
+            <div style="margin-top: 5px;">
+              <div class="annotation-type"><span class="intro-color"></span> I - Intro End</div>
+              <div class="annotation-type"><span class="segment-color"></span> S - Start/End Segment</div>
+              <div class="annotation-type"><span class="outro-color"></span> O - Outro Start</div>
+              <div class="annotation-type"><span class="beat-color"></span> B - Beat Onset</div>
+              <div class="annotation-type"><span class="downbeat-color"></span> D - Downbeat</div>
+              <div class="annotation-type"><span class="bar-color"></span> Bar Click</div>
+            </div>
+            <div style="margin-top: 10px;">
+              <strong>Annotations:</strong>
+              <div id="annotation-list"></div>
+            </div>
+            <button id="export-annotations">Export Annotations</button>
+          </div>
         </div>
       </div>
 
-      <!-- Audio player script -->
+      <!-- Audio player script with annotations -->
       <script>
         document.addEventListener('DOMContentLoaded', function() {
-          // Initialize WaveSurfer with more schematic visualization
+          // Store annotations
+          const annotations = [];
+          
+          // Initialize WaveSurfer with more schematic visualization and regions plugin
           const wavesurfer = WaveSurfer.create({
             container: '#waveform',
             waveColor: '#4F4A85',
@@ -108,7 +214,528 @@
             normalize: true,     // Normalize the waveform for clearer visualization
             backend: 'MediaElement',
             barHeight: 0.8,      // Bar height (0-1)
-            hideScrollbar: true
+            hideScrollbar: true,
+            plugins: [
+              WaveSurfer.regions.create()
+            ]
+          });
+          
+          // Annotation colors
+          const annotationColors = {
+            'intro': '#FF5722',
+            'segment': '#4CAF50',
+            'outro': '#795548',
+            'beat': '#607D8B',
+            'downbeat': '#E91E63',
+            'bar': '#009688'
+          };
+          
+          // Track active segment
+          let activeSegment = null;
+          let activeLiveRegion = null;  // Track the live region for active segment
+          
+          // Function to add annotation
+          function addAnnotation(type, time, barNumber = null, description = null) {
+            // Create region
+            const id = Date.now().toString();
+            let region;
+            
+            // Special handling for intro and outro types
+            if (type === 'intro') {
+              // First, remove any existing intro regions
+              annotations.forEach(anno => {
+                if (anno.type === 'intro' && wavesurfer.regions.list[anno.id]) {
+                  wavesurfer.regions.list[anno.id].remove();
+                }
+              });
+              
+              // Remove intro annotations from array
+              for (let i = annotations.length - 1; i >= 0; i--) {
+                if (annotations[i].type === 'intro') {
+                  annotations.splice(i, 1);
+                }
+              }
+              
+              // Create a region from start to intro end
+              region = wavesurfer.addRegion({
+                id: id,
+                start: 0,
+                end: time,
+                color: 'rgba(180, 180, 180, 0.2)', // Gray translucent color
+                drag: false,
+                resize: false
+              });
+              
+              // Add an end marker at the specified time
+              const markerId = 'marker-' + id;
+              const marker = wavesurfer.addRegion({
+                id: markerId,
+                start: time,
+                end: time + 0.1,
+                color: annotationColors[type] + '33',
+                drag: false,
+                resize: false
+              });
+              
+              // Add label to the marker
+              const label = document.createElement('div');
+              label.className = 'region-label';
+              label.textContent = 'Intro';
+              label.style.color = annotationColors[type];
+              marker.element.appendChild(label);
+            } else if (type === 'outro') {
+              // First, remove any existing outro regions
+              annotations.forEach(anno => {
+                if (anno.type === 'outro' && wavesurfer.regions.list[anno.id]) {
+                  wavesurfer.regions.list[anno.id].remove();
+                }
+              });
+              
+              // Remove outro annotations from array
+              for (let i = annotations.length - 1; i >= 0; i--) {
+                if (annotations[i].type === 'outro') {
+                  annotations.splice(i, 1);
+                }
+              }
+              
+              // Get total duration
+              const duration = wavesurfer.getDuration();
+              
+              // Create a region from outro start to end
+              region = wavesurfer.addRegion({
+                id: id,
+                start: time,
+                end: duration,
+                color: 'rgba(180, 180, 180, 0.2)', // Gray translucent color
+                drag: false,
+                resize: false
+              });
+              
+              // Add a start marker at the specified time
+              const markerId = 'marker-' + id;
+              const marker = wavesurfer.addRegion({
+                id: markerId,
+                start: time,
+                end: time + 0.1,
+                color: annotationColors[type] + '33',
+                drag: false,
+                resize: false
+              });
+              
+              // Add label to the marker
+              const label = document.createElement('div');
+              label.className = 'region-label';
+              label.textContent = 'Outro';
+              label.style.color = annotationColors[type];
+              marker.element.appendChild(label);
+            } else if (type === 'segment') {
+              // Handle segment start/end
+              if (!activeSegment) {
+                // Start a new segment
+                activeSegment = {
+                  id: id,
+                  start: time,
+                  description: ''
+                };
+                
+                // Add marker at segment start (without a label)
+                const marker = wavesurfer.addRegion({
+                  id: 'marker-' + id,
+                  start: time,
+                  end: time + 0.1,
+                  color: annotationColors[type] + '33',
+                  drag: false,
+                  resize: false
+                });
+                
+                // Create an initial "live" region that will be updated during playback
+                activeLiveRegion = wavesurfer.addRegion({
+                  id: 'live-' + id,
+                  start: time,
+                  end: time + 0.1,  // This will be continuously updated
+                  color: 'rgba(76, 175, 80, 0.2)',  // Green translucent color
+                  drag: false,
+                  resize: false
+                });
+                
+                // Create the annotation object but don't add to list yet
+                region = { id: id };
+              } else {
+                // End the current segment
+                const segmentId = activeSegment.id;
+                const startTime = activeSegment.start;
+                
+                // Remove the live region
+                if (activeLiveRegion) {
+                  activeLiveRegion.remove();
+                  activeLiveRegion = null;
+                }
+                
+                // Prompt for description after ending the segment
+                const segmentDescription = prompt("Enter a description for this segment:", "");
+                const description = segmentDescription !== null ? segmentDescription : '';
+                
+                // Create a permanent region from segment start to end
+                region = wavesurfer.addRegion({
+                  id: segmentId,
+                  start: startTime,
+                  end: time,
+                  color: 'rgba(76, 175, 80, 0.2)', // Green translucent color
+                  drag: false,
+                  resize: false
+                });
+                
+                // Add end marker without a label
+                const marker = wavesurfer.addRegion({
+                  id: 'end-marker-' + segmentId,
+                  start: time,
+                  end: time + 0.1,
+                  color: annotationColors[type] + '33',
+                  drag: false,
+                  resize: false
+                });
+                
+                // Create the annotation object
+                const annotation = {
+                  id: segmentId,
+                  type: 'segment',
+                  time: startTime,
+                  timeFormatted: formatTime(startTime),
+                  endTime: time,
+                  endTimeFormatted: formatTime(time),
+                  description: description
+                };
+                
+                annotations.push(annotation);
+                
+                // Reset active segment
+                activeSegment = null;
+                
+                // Update annotation list
+                updateAnnotationList();
+                
+                return annotation;
+              }
+            } else if (type === 'beat') {
+              // Create a thin line marker for beat onset
+              region = wavesurfer.addRegion({
+                id: id,
+                start: time,
+                end: time + 0.001, // Very narrow region to appear as a line
+                color: annotationColors[type],
+                drag: false,
+                resize: false
+              });
+              
+              // Replace default region display with a thin vertical line
+              if (region.element) {
+                region.element.innerHTML = '';
+                const line = document.createElement('div');
+                line.className = 'beat-marker';
+                line.style.left = '50%';
+                region.element.appendChild(line);
+              }
+            } else if (type === 'downbeat') {
+              // Create a thin line marker for downbeat (slightly thicker than regular beats)
+              region = wavesurfer.addRegion({
+                id: id,
+                start: time,
+                end: time + 0.001, // Very narrow region to appear as a line
+                color: annotationColors[type],
+                drag: false,
+                resize: false
+              });
+              
+              // Replace default region display with a thin vertical line
+              if (region.element) {
+                region.element.innerHTML = '';
+                const line = document.createElement('div');
+                line.className = 'downbeat-marker';
+                line.style.left = '50%';
+                region.element.appendChild(line);
+              }
+            } else if (type === 'bar') {
+              // For bar clicks, we just want to log the event without adding a region
+              region = { id: id }; // Create dummy region object
+            } else {
+              // For other types, just add a marker
+              region = wavesurfer.addRegion({
+                id: id,
+                start: time,
+                end: time + 0.1,
+                color: annotationColors[type] + '33',
+                drag: false,
+                resize: false
+              });
+              
+              // Add label
+              const label = document.createElement('div');
+              label.className = 'region-label';
+              label.textContent = type.charAt(0).toUpperCase() + type.slice(1);
+              label.style.color = annotationColors[type];
+              region.element.appendChild(label);
+            }
+            
+            // Don't add to the annotation list if we're just starting a segment
+            if (type === 'segment' && activeSegment && activeSegment.id === id) {
+              return;
+            }
+            
+            // Store annotation
+            const annotation = {
+              id: id,
+              type: type,
+              time: time,
+              timeFormatted: formatTime(time)
+            };
+            
+            // Add bar number if this is a bar click
+            if (type === 'bar' && barNumber !== null) {
+              annotation.barNumber = barNumber;
+            }
+            
+            // Add description if provided
+            if (description !== null) {
+              annotation.description = description;
+            }
+            
+            annotations.push(annotation);
+            
+            // Update annotation list
+            updateAnnotationList();
+            
+            return annotation;
+          }
+          
+          // Make addAnnotation available globally for bar click handling
+          window.addAnnotation = addAnnotation;
+          // Make wavesurfer available globally
+          window.wavesurfer = wavesurfer;
+          
+          // Format time as MM:SS.SSS
+          function formatTime(time) {
+            const minutes = Math.floor(time / 60);
+            const seconds = Math.floor(time % 60);
+            const milliseconds = Math.floor((time % 1) * 1000);
+            return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(3, '0')}`;
+          }
+          
+          // Handle keyboard events for annotations and playback control
+          document.addEventListener('keydown', function(e) {
+            // Make sure wavesurfer is loaded before handling any audio controls
+            if (!wavesurfer.isReady) {
+              return; // Exit the handler if wavesurfer isn't ready yet
+            }
+            
+            // Space bar for play/pause
+            if (e.code === 'Space' && document.activeElement.tagName !== 'INPUT' && 
+                document.activeElement.tagName !== 'TEXTAREA') {
+              e.preventDefault(); // Prevent page scrolling
+              if (wavesurfer.isPlaying()) {
+                wavesurfer.pause();
+              } else {
+                wavesurfer.play();
+              }
+              return;
+            }
+            
+            // Arrow keys for navigation
+            if (e.code === 'ArrowLeft' && document.activeElement.tagName !== 'INPUT' && 
+                document.activeElement.tagName !== 'TEXTAREA') {
+              e.preventDefault();
+              const currentTime = wavesurfer.getCurrentTime();
+              wavesurfer.setCurrentTime(Math.max(0, currentTime - 2)); // Go back 2 seconds
+              return;
+            }
+            
+            if (e.code === 'ArrowRight' && document.activeElement.tagName !== 'INPUT' && 
+                document.activeElement.tagName !== 'TEXTAREA') {
+              e.preventDefault();
+              const currentTime = wavesurfer.getCurrentTime();
+              const duration = wavesurfer.getDuration() || 0;
+              wavesurfer.setCurrentTime(Math.min(duration, currentTime + 2)); // Go forward 2 seconds
+              return;
+            }
+            
+            // Only handle annotation keys if audio is playing
+            if (!wavesurfer.isPlaying()) {
+              return;
+            }
+            
+            const currentTime = wavesurfer.getCurrentTime();
+            
+            switch(e.key.toLowerCase()) {
+              case 'i':
+                addAnnotation('intro', currentTime);
+                break;
+              case 's':
+                // Toggle segment start/end
+                addAnnotation('segment', currentTime);
+                break;
+              case 'o':
+                addAnnotation('outro', currentTime);
+                break;
+              case 'b':
+                addAnnotation('beat', currentTime);
+                break;
+              case 'd':
+                addAnnotation('downbeat', currentTime);
+                break;
+              case 'n':
+                // Handle next bar navigation
+                goToNextBar(currentTime);
+                break;
+            }
+          });
+          
+          // Update annotation list display
+          function updateAnnotationList() {
+            const listElement = document.getElementById('annotation-list');
+            
+            // Sort annotations by time
+            annotations.sort((a, b) => a.time - b.time);
+            
+            // Generate HTML
+            let html = '';
+            annotations.forEach((annotation, index) => {
+              // Special display for different annotation types
+              if (annotation.type === 'bar') {
+                html += `<div data-id="${annotation.id}" style="margin-bottom: 4px;">
+                  <span style="color:${annotationColors[annotation.type]}">●</span>
+                  ${annotation.timeFormatted} - Bar ${annotation.barNumber}
+                  <button class="delete-annotation" data-index="${index}" style="margin-left: 5px; font-size: 10px;">X</button>
+                </div>`;
+              } else if (annotation.type === 'segment') {
+                html += `<div data-id="${annotation.id}" style="margin-bottom: 4px;">
+                  <span style="color:${annotationColors[annotation.type]}">●</span>
+                  ${annotation.timeFormatted} - ${annotation.endTimeFormatted} - Segment
+                  ${annotation.description ? ': ' + annotation.description : ''}
+                  <button class="delete-annotation" data-index="${index}" style="margin-left: 5px; font-size: 10px;">X</button>
+                  <button class="edit-segment" data-index="${index}" style="margin-left: 5px; font-size: 10px;">Edit</button>
+                </div>`;
+              } else {
+                html += `<div data-id="${annotation.id}" style="margin-bottom: 4px;">
+                  <span style="color:${annotationColors[annotation.type]}">●</span>
+                  ${annotation.timeFormatted} - ${annotation.type.charAt(0).toUpperCase() + annotation.type.slice(1)}
+                  <button class="delete-annotation" data-index="${index}" style="margin-left: 5px; font-size: 10px;">X</button>
+                </div>`;
+              }
+            });
+            
+            listElement.innerHTML = html;
+            
+            // Add event listeners to delete buttons
+            document.querySelectorAll('.delete-annotation').forEach(button => {
+              button.addEventListener('click', function() {
+                const index = parseInt(this.getAttribute('data-index'));
+                const id = annotations[index].id;
+                
+                // Handle special case for segments which have multiple regions
+                if (annotations[index].type === 'segment') {
+                  // Remove start and end markers
+                  if (wavesurfer.regions.list['marker-' + id]) {
+                    wavesurfer.regions.list['marker-' + id].remove();
+                  }
+                  if (wavesurfer.regions.list['end-marker-' + id]) {
+                    wavesurfer.regions.list['end-marker-' + id].remove();
+                  }
+                }
+                
+                // Remove region if it exists in wavesurfer
+                if (annotations[index].type !== 'bar' && wavesurfer.regions.list[id]) {
+                  wavesurfer.regions.list[id].remove();
+                }
+                
+                // Remove from array
+                annotations.splice(index, 1);
+                
+                // Update list
+                updateAnnotationList();
+              });
+            });
+            
+            // Add event listeners to edit buttons for segments
+            document.querySelectorAll('.edit-segment').forEach(button => {
+              button.addEventListener('click', function() {
+                const index = parseInt(this.getAttribute('data-index'));
+                const annotation = annotations[index];
+                
+                if (annotation.type === 'segment') {
+                  const newDescription = prompt("Edit segment description:", annotation.description || "");
+                  if (newDescription !== null) {
+                    annotation.description = newDescription;
+                    
+                    // Update list without modifying the region visually
+                    updateAnnotationList();
+                  }
+                }
+              });
+            });
+          }
+          
+          // Function to go to the next bar
+          function goToNextBar(currentTime) {
+            // Get the current bar number from UI
+            let currentBarNumber = parseInt(document.getElementById('ui-barnumber').value);
+            
+            // If not a valid number, start at 0
+            if (isNaN(currentBarNumber)) {
+              currentBarNumber = -1; // Will become 0 after incrementing
+            }
+            
+            // Increment to get the next bar
+            const nextBarNumber = currentBarNumber + 1;
+            
+            // Get the currently displayed song container
+            const selectedOptions = [...document.getElementById("songs").options]
+              .filter(option => option.selected);
+              
+            if (selectedOptions.length === 0) return; // No song selected
+            
+            const songId = selectedOptions[0].value;
+            const songContainer = document.getElementById(`song-${songId}`);
+            
+            if (!songContainer) return;
+            
+            // Find all measures
+            const measures = window.findMeasures ? 
+              window.findMeasures(songContainer) : [];
+            
+            // Check if next bar exists
+            if (nextBarNumber >= 0 && nextBarNumber < measures.length) {
+              // Add bar annotation at current time with the next bar number
+              addAnnotation('bar', currentTime, nextBarNumber);
+              
+              // Highlight the next bar
+              if (window.highlightBarByNumber) {
+                window.highlightBarByNumber(nextBarNumber);
+              } else {
+                // Simulate click on the first cell of the target measure
+                measures[nextBarNumber][0].click();
+              }
+            }
+          }
+          
+          // Export annotations
+          document.getElementById('export-annotations').addEventListener('click', function() {
+            if (annotations.length === 0) {
+              alert('No annotations to export');
+              return;
+            }
+            
+            const sortedAnnotations = [...annotations].sort((a, b) => a.time - b.time);
+            const json = JSON.stringify(sortedAnnotations, null, 2);
+            
+            // Create download link
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'audio-annotations.json';
+            a.click();
+            
+            // Clean up
+            URL.revokeObjectURL(url);
           });
           
           // Handle file upload
@@ -117,6 +744,13 @@
             if (file) {
               const fileURL = URL.createObjectURL(file);
               wavesurfer.load(fileURL);
+              
+              // Clear existing annotations
+              Object.keys(wavesurfer.regions.list).forEach(id => {
+                wavesurfer.regions.list[id].remove();
+              });
+              annotations.length = 0;
+              updateAnnotationList();
             }
           });
           
@@ -128,6 +762,57 @@
           document.getElementById('stop-btn').addEventListener('click', function() {
             wavesurfer.stop();
           });
+          
+          // Track playback and highlight corresponding bars at matching timestamps
+          wavesurfer.on('audioprocess', function() {
+            if (!wavesurfer.isPlaying()) return;
+            
+            const currentTime = wavesurfer.getCurrentTime();
+            const timeThreshold = 0.1; // Time threshold in seconds for matching timestamps
+            
+            // Update live segment if one is active
+            if (activeSegment && activeLiveRegion) {
+              // Update the end position of the live region to follow the cursor
+              activeLiveRegion.update({
+                end: currentTime
+              });
+            }
+            
+            // Find bar annotations close to current time
+            const barAnnotations = annotations.filter(anno => 
+              anno.type === 'bar' && 
+              Math.abs(anno.time - currentTime) < timeThreshold
+            );
+            
+            if (barAnnotations.length > 0) {
+              // Sort by closest time if multiple matches
+              barAnnotations.sort((a, b) => 
+                Math.abs(a.time - currentTime) - Math.abs(b.time - currentTime)
+              );
+              
+              // Get the closest bar annotation
+              const closestBarAnnotation = barAnnotations[0];
+              
+              // Highlight the bar in the chord chart
+              highlightBarByNumber(closestBarAnnotation.barNumber);
+            }
+          });
+          
+          // Function to highlight a specific bar by its number
+          function highlightBarByNumber(barNumber) {
+            // First, check if the input is valid
+            if (barNumber === undefined || barNumber === null) return;
+            
+            // Call the existing functionality in demo.js to highlight a bar
+            if (window.highlightBarByNumber) {
+              window.highlightBarByNumber(barNumber);
+            } else {
+              // Fallback if global function not available
+              document.getElementById('ui-barnumber').value = barNumber;
+              const event = new Event('change');
+              document.getElementById('ui-barnumber').dispatchEvent(event);
+            }
+          }
         });
       </script>
       

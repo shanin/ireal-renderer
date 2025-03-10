@@ -96,6 +96,9 @@ window.addEventListener("load", async () => {
 		return measures;
 	}
 	
+	// Make findMeasures available globally
+	window.findMeasures = findMeasures;
+	
 	/**
 	 * Add click handlers to measures
 	 * @param {Element} container - The container element 
@@ -128,6 +131,12 @@ window.addEventListener("load", async () => {
 					
 					// Update bar number input
 					document.getElementById('ui-barnumber').value = index;
+					
+					// Log bar click as an annotation if wavesurfer is available
+					if (window.wavesurfer && typeof window.addAnnotation === 'function') {
+						const currentTime = window.wavesurfer.isReady ? window.wavesurfer.getCurrentTime() : 0;
+						window.addAnnotation('bar', currentTime, index);
+					}
 				});
 			});
 		});
@@ -242,4 +251,42 @@ window.addEventListener("load", async () => {
 			measures[barNumber][0].click();
 		}
 	});
+
+	// Global function to highlight a bar by its number, to be called from the audio player
+	window.highlightBarByNumber = function(barNumber) {
+		// Set the bar number input value
+		document.getElementById("ui-barnumber").value = barNumber;
+		
+		// Get currently displayed song container
+		const selected = [...document.getElementById("songs").options]
+			.filter(option => option.selected)
+			.map(el => document.getElementById(`song-${el.value}`))
+			.find(el => el.innerHTML !== "");
+			
+		if (!selected) return;
+		
+		// Find measures and highlight selected one
+		const measures = findMeasures(selected);
+		if (barNumber >= 0 && barNumber < measures.length) {
+			// Remove previous highlight
+			if (currentHighlight) {
+				currentHighlight.forEach(cell => {
+					const highlight = cell.querySelector('.irr-cell-highlight');
+					if (highlight) {
+						highlight.remove();
+					}
+				});
+			}
+			
+			// Add highlight to the target measure
+			const measureCells = measures[barNumber];
+			measureCells.forEach(cell => {
+				const highlight = document.createElement('div');
+				highlight.className = 'irr-cell-highlight';
+				cell.appendChild(highlight);
+			});
+			
+			currentHighlight = measureCells;
+		}
+	};
 });
